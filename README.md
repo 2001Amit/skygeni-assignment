@@ -1,539 +1,337 @@
-# SkyGeni Sales Intelligence System
+# SkyGeni Sales Intelligence - Assignment Submission
 
-**Submitted by:** Amit Sharma
-**Date:** February 2026  
-**Assignment:** Data Science / Applied AI Engineer Role
+Hey! Thanks for the interesting problem. I spent about 6-7 hours on this over the past few days, and here's what I found.
 
----
+## Quick Summary
 
-## 🎯 Executive Summary
+**The Problem:** CRO says win rates are dropping but pipeline looks healthy. Basically - we're chasing more deals but closing fewer of them.
 
-**The Problem:** A B2B SaaS company's CRO observed declining win rates despite healthy pipeline volume.
+**What I Found:**
+- Win rate dropped from ~52% to ~43% over the past year
+- But the issue isn't equal across the board - it's concentrated in specific areas
+- Outbound leads are dragging everything down (only 37% win rate vs 61% for referrals)
+- Deals that drag past 90 days almost never close
 
-**My Approach:** Built a decision intelligence system to diagnose the root cause and provide actionable recommendations.
-
-**Key Findings:**
-1. **Win rate dropped 8-12% over 2 quarters** - but the issue isn't volume, it's quality
-2. **Lead source matters hugely** - Referrals convert 40% better than Outbound
-3. **Sales cycle length predicts outcome** - Deals >90 days have 50% lower win rates
-4. **Custom metrics reveal hidden issues** - Pipeline Quality Index declining before win rate does
-
-**Business Impact:** System identifies 5 immediate actions that could improve win rate by 10-15 percentage points, potentially saving $500K+ in wasted sales effort.
+**What to Do About It:**
+Focus on lead quality over quantity. The data suggests we're filling the pipeline with low-probability deals just to hit activity metrics, which makes things look healthy but isn't translating to revenue.
 
 ---
 
-## 📁 Project Structure
+## My Thought Process (Part 1 - Problem Framing)
 
-```
-skygeni-assignment/
-├── data/
-│   └── skygeni_sales_data.csv          # Sales data (5000 deals)
-├── notebooks/
-│   └── sales_intelligence_analysis.py  # Complete analysis (all 5 parts)
-├── outputs/
-│   ├── analysis_output.txt             # Full analysis results
-│   └── deal_risk_scores.csv            # Risk scores for all deals
-└── README.md                            # This file
-```
+When I first read the CRO's complaint, my gut reaction was: this is a **quality vs quantity** problem. High pipeline volume but low conversion = we're fishing in the wrong pond.
 
----
+### The Real Problem
 
-## 🚀 Quick Start
+I think what's happening here is pretty common in SaaS sales:
+1. Sales leadership sets aggressive pipeline targets
+2. Reps respond by lowering their qualification bar to hit targets
+3. Pipeline looks great in metrics reports
+4. But conversion rates tank because we're chasing bad-fit prospects
 
-### Prerequisites
-```bash
-pip install pandas numpy matplotlib seaborn scikit-learn
-```
+It's not necessarily that reps are doing something wrong - it's that the incentives are misaligned.
 
-### Run Analysis
-```bash
-cd notebooks
-python sales_intelligence_analysis.py
-```
+### Questions I Wanted to Answer
 
-This will:
-- Perform complete EDA
-- Generate insights and custom metrics
-- Train win rate driver model
-- Output deal risk scores
-- Print all recommendations
+Instead of just building a model to predict wins/losses, I wanted to understand:
 
----
+1. **WHERE is the problem?** Is it certain industries? Regions? Lead sources? Reps?
+2. **WHEN did it start?** Was there a specific quarter where things changed?
+3. **WHY are we losing?** Are deals dying at a specific stage? Is it sales cycle length? Deal size?
+4. **WHAT can we actually do?** (This is the most important - insights without actions are useless)
 
-## 📊 Part 1: Problem Framing
+### Metrics That Matter
 
-### The Real Business Problem
+Honestly, win rate by itself doesn't tell you much. I wanted to look at:
 
-The CRO faces a **Revenue Efficiency Crisis**, not just a win rate issue:
-- Pipeline is growing (quantity ✅)
-- Conversions are declining (quality ❌)
-- This means: **Wrong deals, wrong approach, or wrong timing**
+- **Win rate by segment** (industry, lead source, product type)
+- **Conversion rates by stage** (where are deals actually dying?)
+- **Sales cycle analysis** (how long are won vs lost deals taking?)
 
-**Root Causes I Investigated:**
-1. Lead quality deterioration (chasing volume over fit)
-2. Sales process breakdown at specific stages
-3. Market/competitive shifts
-4. Rep skill gaps with certain deal types
+I also created two custom metrics (more on this below) because I couldn't find standard metrics that captured what I was seeing.
 
-### Key Questions the AI System Must Answer
+### Assumptions I'm Making
 
-1. **WHERE are we losing?**
-   - Which stages, segments, reps, time periods?
+Fair warning - these could all be wrong:
+- CRM data is accurate (it probably isn't 100%)
+- Sales process is consistent across regions (probably not true)
+- Past patterns will continue (markets change)
+- External factors (economy, competition) are stable (definitely not true)
 
-2. **WHY are we losing?**
-   - What deal characteristics predict loss?
-
-3. **WHICH deals can we save?**
-   - Risk scoring + intervention recommendations
-
-4. **WHAT should we change?**
-   - Process, targeting, resource allocation
-
-### Critical Metrics
-
-**Primary Metrics:**
-- Win Rate by Segment (industry, product, lead source)
-- Stage Conversion Rates (where deals die)
-- Sales Velocity (days to close: won vs lost)
-
-**Custom Metrics I Invented:**
-
-1. **Pipeline Quality Index (PQI)**
-   ```
-   PQI = (High-probability deals / Total pipeline) × (Avg Deal Size / Median Deal Size)
-   ```
-   - Measures pipeline health before it's too late
-   - PQI declining = filling pipeline with junk
-
-2. **Revenue Efficiency Score (RES)**
-   ```
-   RES = (Won Revenue / Total Pipeline Revenue) × Win Rate
-   ```
-   - Combines win rate with revenue capture
-   - Early warning system for revenue risk
-
-### Key Assumptions
-
-✅ Historical patterns (2023-24) predict future  
-✅ Sales process is consistent across regions/reps  
-✅ CRM data is accurate and complete  
-✅ External factors remain stable  
-
-⚠️ **These are the weakest links** (see Part 5: Reflection)
+The biggest assumption is that **correlation = causation**, which I know isn't true but I'm treating it as directional guidance rather than absolute truth.
 
 ---
 
-## 🔍 Part 2: Key Insights
+## What I Found in the Data (Part 2 - EDA & Insights)
 
-### Insight #1: Win Rate Decline Is Real (And Accelerating)
+### Insight 1: The Win Rate Drop is Real (and Getting Worse)
 
-**Finding:**
-- Q1 2023: 52% win rate
-- Q4 2024: 43% win rate
-- **9 percentage point drop** over 6 quarters
+I broke down win rate by quarter and yeah, it's declining steadily:
 
-**Why It Matters:**
-- At current trajectory, win rate hits 35% by Q2 2025
-- Pipeline growth is masking revenue risk
+- Q1 2023: 52%
+- Q4 2024: 43%
 
-**Recommended Action:**
-> **Implement "Quality Gate"** - reject deals that don't meet minimum criteria before entering pipeline
+That's a 9 percentage point drop. At this rate, we'll be under 40% by mid-2025.
 
----
+But here's what's interesting - deal volume actually INCREASED during this period. So we're creating more pipeline but converting less of it. Classic quality vs quantity problem.
 
-### Insight #2: Lead Source Effectiveness Gap
+**Why this matters:** Revenue is a function of both pipeline size AND conversion rate. Right now we're optimizing for the wrong metric.
 
-**Finding:**
-| Lead Source | Win Rate | Avg Deal Size | Avg Cycle |
-|-------------|----------|---------------|-----------|
-| Referral    | 61%      | $18,500       | 45 days   |
-| Partner     | 54%      | $21,300       | 52 days   |
-| Inbound     | 48%      | $15,200       | 58 days   |
-| Outbound    | 37%      | $12,800       | 67 days   |
+**What to do:** I'd recommend a "quality gate" before deals enter the pipeline. Better to have fewer, higher-quality opportunities than a bloated pipeline that wastes everyone's time.
 
-**Why It Matters:**
-- Outbound generates volume but wastes resources
-- **40% win rate gap** between best and worst sources
+### Insight 2: Lead Source is Make or Break
 
-**Recommended Action:**
-> **Budget Reallocation** - Shift 30% of outbound spend to referral programs  
-> **Estimated Impact:** Save $350K/year in wasted SDR effort
+This was the biggest finding IMO. Not all leads are created equal:
 
----
+| Lead Source | Win Rate | Avg Deal Size | Sales Cycle |
+|-------------|----------|---------------|-------------|
+| Referral    | 61%      | $18K          | 45 days     |
+| Partner     | 54%      | $21K          | 52 days     |
+| Inbound     | 48%      | $15K          | 58 days     |
+| Outbound    | 37%      | $13K          | 67 days     |
 
-### Insight #3: Sales Cycle = Death Spiral
+Referrals are almost 2x better than Outbound. And they close faster with bigger deal sizes.
 
-**Finding:**
-- Deals closed in <30 days: **67% win rate**
-- Deals taking 90+ days: **34% win rate**
-- Every additional 30 days reduces win probability by 12%
+**Why this matters:** If we're allocating equal budget/effort to all lead sources, we're massively misallocating resources. Every dollar spent on outbound could generate 2x the revenue if spent on referral programs.
 
-**Why It Matters:**
-- Long cycles aren't "big deals brewing" - they're dead deals dragging
-- Reps waste time on zombie deals instead of fresh opportunities
+**What to do:** 
+- Cut outbound budget by 30% and redirect to referral programs
+- Stop measuring SDRs on "leads generated" and start measuring on "qualified opportunities"
+- Build out partner ecosystem (54% win rate is solid)
 
-**Recommended Action:**
-> **60-Day Rule** - If deal hasn't progressed to Proposal stage within 60 days, re-qualify or kill  
-> **Estimated Impact:** Free up 25% of rep time for high-quality deals
+### Insight 3: Time Kills Deals
 
----
+I bucketed deals by how long they took to close:
 
-### Custom Metric Results
+- 0-30 days: 67% win rate
+- 31-60 days: 51% win rate
+- 61-90 days: 42% win rate
+- 90+ days: 34% win rate
 
-**Pipeline Quality Index (PQI): 1.73**
-- Interpretation: Pipeline has moderate quality
-- Trend: Declining 0.2 points per quarter ⚠️
-- **Use:** Leading indicator - drops before win rate does
+Every 30 days a deal sits, win probability drops about 12 percentage points.
 
-**Revenue Efficiency Score (RES): 0.31**
-- Interpretation: Only capturing 31% of pipeline potential
-- Trend: Flat (not improving despite more data)
-- **Use:** Benchmark for improvement initiatives
+I initially thought this was just "big deals take longer" but when I controlled for deal size, the pattern held. Long cycles = dead deals, regardless of size.
 
----
+**Why this matters:** Reps are probably spending tons of time on deals that are never going to close. It's zombie pipeline.
 
-## 🤖 Part 3: Win Rate Driver Analysis (Decision Engine)
+**What to do:** Implement a 60-day rule - if a deal hasn't progressed to Proposal stage within 60 days, require re-qualification or kill it. Free up rep time for fresh opportunities.
 
-### Model Overview
+### Custom Metrics I Created
 
-**Approach:** Logistic Regression (chosen for interpretability)
+Standard metrics weren't capturing what I was seeing, so I made two new ones:
 
-**Performance:**
-- Accuracy: 73%
-- Precision (Won): 76%
-- Recall (Won): 71%
-- **Identifies 7 out of 10 at-risk deals correctly**
+**1. Pipeline Quality Index (PQI)**
 
-### Top Win Rate Drivers (Ranked)
+Formula: `(% of deals in high-win-rate segments) × (Avg deal size / Median deal size)`
 
-1. **Lead Source** (coefficient: 0.42)
-   - Referral/Partner 40% better than Outbound
-   
-2. **Sales Cycle Length** (coefficient: -0.38)
-   - Every 30 days reduces odds by 28%
+Basically trying to measure: is our pipeline full of good deals or junk?
 
-3. **Product Type** (coefficient: 0.31)
-   - Enterprise wins 22% more than Core
+Current PQI: 1.73 (and declining 0.2 points per quarter)
 
-4. **Industry** (coefficient: 0.24)
-   - FinTech/SaaS win 18% more than HealthTech
+The cool thing about PQI is it's a leading indicator - it drops BEFORE win rate does, so you can catch problems early.
 
-5. **Deal Amount** (coefficient: 0.19)
-   - Sweet spot: $5K-$20K (highest conversion)
+**2. Revenue Efficiency Score (RES)**
 
-### Actionable Outputs
+Formula: `(Won Revenue / Total Pipeline Revenue) × Win Rate`
 
-The model generates **risk scores** for every deal (see `outputs/deal_risk_scores.csv`):
+This combines two things: (a) are we winning deals, and (b) are we winning the BIG deals?
 
-```csv
-deal_id, actual_outcome, predicted_probability, risk_score
-D12345,  Lost,            0.23,                  0.77  ← HIGH RISK!
-D67890,  Won,             0.81,                  0.19  ← Safe
-```
+Current RES: 0.31 (meaning we're only capturing 31% of our pipeline's revenue potential)
 
-**How Sales Leaders Use This:**
-
-1. **Monday Pipeline Review**
-   - Filter for deals with risk_score > 0.7
-   - Assign executive sponsors to high-value at-risk deals
-
-2. **Rep Coaching**
-   - Reps with many high-risk deals need skill development
-   - Pattern analysis: What are they doing differently?
-
-3. **Process Intervention**
-   - Deals stuck >60 days → Trigger discount approval
-   - Deals in Demo >30 days → Schedule demo recap
+Honestly not sure if these metrics are "good" but they helped me think about the problem differently.
 
 ---
 
-## 🏗️ Part 4: System Design
+## The Model (Part 3 - Decision Engine)
 
-### High-Level Architecture
+I chose **Option B (Win Rate Driver Analysis)** because it directly addresses the CRO's question: "what's going wrong?"
 
-```
-┌─────────────────┐
-│  CRM (SFDC)     │
-└────────┬────────┘
-         │ Daily Batch (2 AM)
-         ▼
-┌─────────────────┐
-│  ETL Pipeline   │  ← Data validation, cleaning
-│  (Airflow)      │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Data Warehouse │  ← Snowflake/PostgreSQL
-│  (Snowflake)    │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────────────────┐
-│  Analytics Engine (Python)  │
-│  - Win rate driver model    │
-│  - Risk scoring             │
-│  - Anomaly detection        │
-│  - Metric calculation       │
-└────────┬────────────────────┘
-         │
-         ▼
-┌────────────────┬─────────────┐
-│  Alert Engine  │  Dashboard  │
-│  (Slack/Email) │ (Streamlit) │
-└────────────────┴─────────────┘
-```
+### Why Not the Other Options?
 
-### Example Alerts
+- **Deal Risk Scoring:** Felt too reactive. CRO wants to know WHY, not just WHICH deals are at risk.
+- **Revenue Forecast:** Too much uncertainty, not actionable enough
+- **Anomaly Detection:** Interesting but doesn't solve the core problem
 
-**Real-Time: High-Value At-Risk Deal**
-```
-🚨 CRITICAL ALERT
+### Model Approach
 
-Deal: D12345 | Acme Corp | $85,000 ACV
-Risk Score: 78% (Very High)
-Stage: Demo (67 days - avg: 28 days)
+I went with **Logistic Regression** instead of something fancier (Random Forest, XGBoost, etc.) for one reason: **interpretability**.
 
-Why at risk:
-• Sales cycle 2.4x average
-• Outbound lead (37% win rate)
-• HealthTech sector (declining)
+The CRO doesn't care about 0.5% accuracy improvements. They care about "what factors are killing our win rate and what do I do about it?"
 
-Recommended Action:
-→ Schedule exec sponsor call within 24hrs
-→ Offer limited-time discount
-→ Request decision timeline
+Logistic regression gives you coefficients you can actually explain to a non-technical executive.
 
-Owner: @john_sales
-```
+### Results
 
-**Weekly: Pipeline Health Report (Monday 9 AM)**
-```
-📊 WEEKLY PIPELINE HEALTH
+Model accuracy: **73%**
 
-Win Rate: 42.3% (↓ 3.2% vs last week) ⚠️
-Pipeline Quality Index: 1.8 (↓ 0.2)
-Revenue at Risk: $1.2M (23 deals)
+Is that good? Honestly, not amazing, but good enough for this use case. I can correctly identify about 7 out of 10 at-risk deals, which is plenty to take action on.
 
-🚨 ALERTS:
-• Outbound leads: 28% win rate (target: 45%)
-• 18 deals >90 days in pipeline → Review meeting
-• HealthTech segment: 15% conversion drop
+More importantly, the model tells us WHAT matters:
 
-✅ WINS THIS WEEK:
-• $485K closed in North America
-• Referral program: 67% win rate (+8%)
-• 3 Enterprise deals fast-tracked
-```
+**Top factors hurting win rate:**
+1. Sales cycle length (longer = worse)
+2. Outbound leads (vs referral/partner)
+3. Certain industries (HealthTech struggling)
+4. Deal size extremes (very small or very large)
 
-**Monthly: Strategic Insights**
-```
-🔔 ANOMALY DETECTED - Action Required
+**Top factors helping win rate:**
+1. Referral/Partner leads
+2. Fast sales cycles (<60 days)
+3. FinTech and SaaS industries
+4. Mid-size deals ($10-30K)
 
-Pattern: FinTech deals in APAC
-• Win rate: 35% (normally 58%) ⚠️
-• Avg cycle: 95 days (normally 52 days)
-• Volume: 3x normal
+### What I'd Actually Give to the CRO
 
-Hypothesis: New competitor or pricing pressure
+A simple dashboard showing:
+- Each open deal with a risk score (0-100)
+- Top 3 factors contributing to that risk
+- Recommended action (re-qualify, add exec sponsor, fast-track, etc.)
 
-Next Steps:
-1. Market analysis (competitor landscape)
-2. Rep feedback session (lost deal review)
-3. Pricing elasticity test
-```
+And a weekly report:
+- This week's wins/losses by segment
+- Pipeline quality trend
+- Deals that need attention
 
-### Execution Schedule
-
-| Frequency | Alert Type | Recipients |
-|-----------|------------|------------|
-| **Real-time** | High-risk deal alerts (>$50K, risk >70%) | Rep + Manager |
-| **Daily 8 AM** | Pipeline summary | Sales Managers |
-| **Monday 9 AM** | Weekly health report | CRO + VPs |
-| **1st of Month** | Strategic deep-dive | Executive Team |
-
-### Failure Cases & Mitigations
-
-| Failure Mode | Impact | Mitigation |
-|--------------|--------|------------|
-| CRM sync delay | Stale data | Alert on 24hr lag, fallback to cached |
-| Model drift | Inaccurate predictions | Quarterly retraining, performance monitoring |
-| Small sample sizes | Unreliable for new segments | Rule-based defaults until n>50 |
-| Alert fatigue | Reps ignore alerts | Adaptive thresholds, weekly digests |
-| Self-fulfilling prophecy | Low scores → less attention → loss | A/B test interventions |
+Check `outputs/deal_risk_scores.csv` for the full model output.
 
 ---
 
-## 💭 Part 5: Reflection & Limitations
+## System Design (Part 4)
 
-### 1. Weakest Assumptions
+If we were to actually build this as a product, here's what I'm thinking:
 
-**❌ ASSUMPTION: Historical patterns predict future**
-- **Reality:** Markets change (new competitors, economic shifts)
-- **Risk:** Model trained on 2023-24 may fail in 2025
-- **Confidence:** LOW - this is the biggest weakness
+### Architecture (keeping it simple)
 
-**❌ ASSUMPTION: Sales process is consistent**
-- **Reality:** Different reps/regions have different approaches
-- **Risk:** Average-based recommendations may not apply universally
-- **Confidence:** MEDIUM
+```
+Salesforce/CRM 
+    ↓ (daily sync at 2am)
+Data Warehouse (Snowflake)
+    ↓ (ETL + feature engineering)
+Analytics Engine (Python/scikit-learn)
+    ↓
+Dashboard (Streamlit) + Alerts (Slack)
+```
 
-**❌ ASSUMPTION: CRM data is complete**
-- **Reality:** Reps don't always log activities
-- **Risk:** Missing context on why deals lost
-- **Confidence:** MEDIUM
+Nothing fancy. Daily batch job, not real-time (don't need it for this use case).
 
-**❌ ASSUMPTION: Correlation = Causation**
-- **Reality:** Can't prove that forcing Referrals will improve win rate
-- **Risk:** Could optimize the wrong things
-- **Confidence:** LOW - need experiments, not just observations
+### Alerts That Would Actually Be Useful
 
-### 2. Production Failure Modes
+**Daily (8am):**
+> "Pipeline health: 18 new deals added, 12 closed (8 won, 4 lost). Win rate this week: 44% (target: 50%)"
 
-**What would break in real-world production:**
+**Weekly (Monday morning):**
+> "High-risk deals needing attention:
+> - Deal D12345 ($85K) - 67 days in Demo stage (avg: 28 days)
+> - Deal D45678 ($42K) - Outbound lead in HealthTech (both red flags)
+> Total at-risk revenue: $1.2M"
 
-1. **Model Decay (3-6 months)**
-   - Training data becomes stale
-   - New products/markets not in training set
-   - **Fix:** Automated retraining pipeline
+**Monthly (executive level):**
+> "Win rate trend: 43% (↓3% QoQ)
+> Root cause: Outbound lead volume up 40% but converting at 37%
+> Recommended: Reduce outbound targets, invest in referral program"
 
-2. **Edge Cases**
-   - Multi-million dollar deals (outliers)
-   - New industries/regions
-   - **Fix:** Human-in-the-loop for anomalies
+### What Would Break
 
-3. **Gaming the System**
-   - Reps manipulate inputs to look better
-   - Cherry-picking easy deals
-   - **Fix:** Audit trails, multiple metrics
+Let me be honest about failure modes:
 
-4. **Alert Fatigue**
-   - Too many alerts → ignored
-   - **Fix:** Adaptive thresholds, user feedback
+1. **Model drift** - If market conditions change, model becomes useless. Need quarterly retraining.
+2. **Data quality** - If reps don't update CRM properly, garbage in = garbage out
+3. **Gaming** - Reps will figure out what makes deals "look good" and game the system
+4. **Alert fatigue** - Too many alerts = everyone ignores them
+5. **Small samples** - New segments (new industry, new region) won't have enough training data
 
-5. **Data Pipeline Failures**
-   - Schema changes break ETL
-   - **Fix:** Robust error handling, monitoring
+The biggest risk is actually **self-fulfilling prophecy** - if we tell reps a deal is low-probability, they might not try as hard, which makes it actually low-probability.
 
-### 3. Next Steps (1 Month Roadmap)
+---
 
-**Week 1-2: Data Enrichment**
-- ✅ Integrate external data (competitor intel, economic indicators)
-- ✅ Add sales activity data (emails, calls, meetings)
-- ✅ NLP on lost deal notes ("Why did we really lose?")
-
-**Week 3: Advanced Analytics**
-- ✅ Causal inference (not just correlation)
-- ✅ Propensity score matching
-- ✅ Time series forecasting
-
-**Week 4: Productization**
-- ✅ Build interactive dashboard (Streamlit)
-- ✅ Real-time monitoring
-- ✅ Rep-specific coaching recommendations
-- ✅ A/B testing framework
-
-### 4. Confidence Levels
-
-| Component | Confidence | Reason |
-|-----------|------------|---------|
-| **Descriptive insights** | **HIGH** | Data patterns are real |
-| **Custom metrics** | **HIGH** | Novel but practical |
-| **Model accuracy** | **MEDIUM** | 73% is decent, not amazing |
-| **Causal claims** | **LOW** | Correlation ≠ causation |
-| **Generalizability** | **LOW** | One company's data |
-| **Business impact estimates** | **MEDIUM** | Need to validate with pilots |
+## Reflection (Part 5 - The Honest Part)
 
 ### What I'm Least Confident About
 
-**🤔 Can we actually PROVE causation?**
-- I found Referrals win more, but:
-  - Maybe Referrals are just better-fit customers?
-  - Maybe reps try harder on Referrals?
-  - Maybe Referrals have stronger pain?
-- **To fix:** Would need randomized experiments, not just observational data
+**1. Causality**
 
-**🤔 Will this generalize?**
-- Trained on one company's data
-- Different sales motions at other companies
-- **To fix:** Test on multiple companies, build industry-specific models
+I found that Referrals win more, but that doesn't mean FORCING more referrals will work. Maybe referrals are just better-fit customers to begin with. Or maybe reps try harder on referrals. Or maybe referrals come in with stronger pain points.
+
+I can't prove causation from this data. Would need to run actual experiments (A/B tests) to know for sure.
+
+**2. Generalizability**
+
+This is based on one company's data. Different SaaS companies have totally different sales motions. Enterprise software is different from SMB SaaS. Transactional sales are different from strategic.
+
+My model might be overfitted to this specific company's situation.
+
+**3. Missing Context**
+
+CRM data doesn't capture everything. Sales notes might say "lost to competitor X" but not capture the full story. Maybe the competitor was cheaper, or had a better relationship, or had a feature we don't.
+
+I'm making decisions based on incomplete information.
+
+### What Would Break in Production
+
+The model is trained on 2023-2024 data. If there's a new competitor in 2025, or a product launch, or an economic downturn, the model becomes stale fast.
+
+I'd need:
+- Automated retraining pipeline (quarterly at minimum)
+- Performance monitoring (are predictions still accurate?)
+- Human override capability (for edge cases the model doesn't handle)
+
+Also, this assumes the sales process stays consistent, which it won't. If we change comp plans, or hire a new sales leader, or launch a new product, all bets are off.
+
+### What I'd Build Next (If I Had a Month)
+
+**Week 1-2: Get more data**
+- External data: competitor intelligence, market trends, economic indicators
+- Internal data: sales activity (emails, calls, demos), CRM notes with NLP
+- Talk to actual sales reps (data doesn't tell the whole story)
+
+**Week 3: Better analysis**
+- Causal inference instead of just correlation
+- Cohort analysis (do rep behaviors persist over time?)
+- Stage-by-stage conversion analysis (where exactly do deals die?)
+
+**Week 4: Make it actionable**
+- Build actual dashboard (Streamlit or similar)
+- Integrate with Slack for real-time alerts
+- A/B testing framework (so we can actually test interventions)
+
+### The Part I'm Actually Proud Of
+
+The custom metrics (PQI and RES). I think they capture something useful that standard metrics miss.
+
+Also, I tried to keep the analysis focused on **actionability** rather than just "interesting insights." Who cares if win rate is dropping if you don't know what to do about it?
 
 ---
 
-## 🎓 Key Takeaways
+## How to Run This
 
-### What I'd Do Differently
-1. Spend more time on data quality audits upfront
-2. Interview sales reps to validate insights
-3. Build feedback loops from day 1
-4. Focus on 3 high-impact actions vs 10 mediocre ones
-
-### What I'm Proud Of
-1. **Custom metrics** (PQI, RES) - novel but practical
-2. **Actionable outputs** - not just model accuracy
-3. **Honest limitations** - this is the most important part
-4. **Production-ready thinking** - could actually build this
-
----
-
-## 📝 How to Run This Project
-
-### 1. Setup Environment
 ```bash
-# Clone repository
-git clone [your-repo-url]
-cd skygeni-assignment
-
-# Install dependencies
+# Setup
 pip install -r requirements.txt
-```
 
-### 2. Run Analysis
-```bash
+# Run analysis
 cd notebooks
-python sales_intelligence_analysis.py
+python analysis.py
+
+# Outputs will be in outputs/
 ```
 
-### 3. View Outputs
-```bash
-# Risk scores for all deals
-cat outputs/deal_risk_scores.csv
-
-# Full analysis results
-cat outputs/analysis_output.txt
-```
+That's it. Nothing fancy.
 
 ---
 
-## 🛠️ Technology Stack
+## Final Thoughts
 
-- **Language:** Python 3.9+
-- **Data:** pandas, numpy
-- **ML:** scikit-learn
-- **Viz:** matplotlib, seaborn
-- **Proposed Production:**
-  - Data Warehouse: Snowflake
-  - ETL: Apache Airflow
-  - Dashboard: Streamlit
-  - Alerts: Slack API
+This was a fun problem to think through. The assignment said "we care more about how you think than what you build," so I tried to show my reasoning process rather than just building the fanciest model.
 
----
+A few things I learned:
+- Simple models that people understand > complex models that are black boxes
+- Business context matters more than technical sophistication
+- Be honest about limitations (models aren't magic)
 
-## 📧 Contact
-
-**Questions?** Reach out via [email/LinkedIn]
-
-**Feedback?** I'm eager to discuss trade-offs, alternative approaches, and how to improve this system.
+Thanks for the opportunity! Happy to discuss any of this further.
 
 ---
 
-## 🙏 Acknowledgments
-
-Thank you for this challenging and realistic assignment. It was a great simulation of the type of problems data scientists face in production.
-
-**What I Learned:**
-- Business thinking matters more than fancy models
-- Interpretability > accuracy in decision systems
-- Limitations are features, not bugs (honest assessment builds trust)
-
-Looking forward to discussing this further!
+**Contact:** [your email]  
+**GitHub:** [repo link]  
+**Time spent:** ~7 hours over 3 days
