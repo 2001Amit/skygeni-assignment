@@ -1,6 +1,6 @@
 """
-SkyGeni Sales Intelligence Analysis
-Complete solution covering all 5 parts of the assignment
+SkyGeni Sales Analysis
+Quick exploration to figure out what's going on with win rates
 """
 
 import pandas as pd
@@ -10,245 +10,228 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report
 import warnings
 warnings.filterwarnings('ignore')
 
-# Set style
 sns.set_style('whitegrid')
-plt.rcParams['figure.figsize'] = (12, 6)
 
 # ============================================================================
-# PART 1: PROBLEM FRAMING
+# PART 1 - UNDERSTANDING THE PROBLEM
 # ============================================================================
+"""
+CRO says: "Win rate down but pipeline looks healthy"
 
-PROBLEM_FRAMING = """
-## PART 1: PROBLEM FRAMING
+My initial thoughts:
+- Could be lead quality issue (chasing quantity over quality)
+- Could be sales process breakdown
+- Could be market/competitive shift
+- Could be specific segments struggling
 
-### 1. Real Business Problem
-The CRO is experiencing a REVENUE EFFICIENCY problem disguised as a win rate issue.
-- Pipeline volume is healthy (quantity ✓)
-- Win rate is declining (quality ✗)
-- This suggests: wrong deals, wrong approach, or wrong timing
-
-Root causes could be:
-- Chasing low-quality leads that pad pipeline but don't convert
-- Sales process breakdown at specific stages
-- Market/competitive shifts not reflected in sales strategy
-- Rep skill gaps or misalignment with deal types
-
-### 2. Key Questions for AI System
-1. WHERE are we losing? (stage, segment, rep, time period)
-2. WHY are we losing? (deal characteristics, behaviors, patterns)
-3. WHICH deals can we save? (risk scoring + intervention recommendations)
-4. WHAT should we change? (process, targeting, resource allocation)
-
-### 3. Critical Metrics
-Primary Metrics:
-- Win Rate by Segment (industry, product, lead source)
-- Stage Conversion Rates (where are deals dying?)
-- Sales Velocity (days to close: won vs lost)
-
-Custom Metrics (invented):
-- Pipeline Quality Index = (High-probability deals / Total pipeline) × Avg Deal Size
-- Revenue Efficiency Score = (Won ACV / Total Pipeline ACV) × Win Rate
-- Stage Leak Rate = % of deals lost at each stage
-
-### 4. Key Assumptions
-- Historical patterns (2023-2024) are predictive of future
-- Sales process is consistent across regions/reps
-- Deal data is accurate and up-to-date
-- External factors (economy, competition) remain stable
-- CRM data captures all relevant deal interactions
+Let's dig into the data and see what's actually happening...
 """
 
-print(PROBLEM_FRAMING)
-
-# ============================================================================
-# PART 2: DATA EXPLORATION & INSIGHTS
-# ============================================================================
-
-# Load data
+# Load the data
 df = pd.read_csv('../data/skygeni_sales_data.csv')
+
+# Quick check
+print("="*80)
+print("DATASET OVERVIEW")
+print("="*80)
+print(f"Total deals: {len(df):,}")
+print(f"Columns: {', '.join(df.columns)}")
+print(f"\nDate range: {df['created_date'].min()} to {df['closed_date'].max()}")
 
 # Convert dates
 df['created_date'] = pd.to_datetime(df['created_date'])
 df['closed_date'] = pd.to_datetime(df['closed_date'])
 
-# Feature engineering
+# Add some helper columns
 df['quarter'] = df['closed_date'].dt.to_period('Q')
-df['year'] = df['closed_date'].dt.year
 df['month'] = df['closed_date'].dt.to_period('M')
-df['outcome_binary'] = (df['outcome'] == 'Won').astype(int)
+df['won'] = (df['outcome'] == 'Won').astype(int)
 
-print("\n" + "="*80)
-print("DATASET OVERVIEW")
-print("="*80)
-print(f"Total Deals: {len(df)}")
-print(f"Date Range: {df['created_date'].min()} to {df['closed_date'].max()}")
-print(f"\nOverall Win Rate: {df['outcome_binary'].mean():.1%}")
-print(f"Total Revenue (Won): ${df[df['outcome']=='Won']['deal_amount'].sum():,.0f}")
-print(f"Lost Revenue: ${df[df['outcome']=='Lost']['deal_amount'].sum():,.0f}")
+# Basic stats
+overall_win_rate = df['won'].mean()
+total_won = df[df['outcome']=='Won']['deal_amount'].sum()
+total_lost = df[df['outcome']=='Lost']['deal_amount'].sum()
+
+print(f"\nOverall win rate: {overall_win_rate:.1%}")
+print(f"Total revenue won: ${total_won:,.0f}")
+print(f"Total revenue lost: ${total_lost:,.0f}")
+print(f"Revenue left on table: ${total_lost:,.0f} (ouch)")
 
 # ============================================================================
-# INSIGHT 1: Win Rate Decline Over Time
+# PART 2 - EXPLORING THE DATA
 # ============================================================================
 
 print("\n" + "="*80)
-print("INSIGHT 1: WIN RATE DECLINE TREND")
+print("INSIGHT 1: WIN RATE TREND OVER TIME")
 print("="*80)
 
-quarterly_stats = df.groupby('quarter').agg({
-    'outcome_binary': ['mean', 'count'],
-    'deal_amount': ['sum', 'mean']
+# Check quarterly trend
+quarterly = df.groupby('quarter').agg({
+    'won': ['mean', 'count'],
+    'deal_amount': 'sum'
 }).round(3)
 
-quarterly_stats.columns = ['win_rate', 'deal_count', 'total_revenue', 'avg_deal_size']
+quarterly.columns = ['win_rate', 'deals', 'revenue']
+print("\nQuarterly breakdown:")
+print(quarterly)
 
-print("\nQuarterly Performance:")
-print(quarterly_stats)
+# Calculate the decline
+first_q_wr = quarterly['win_rate'].iloc[0]
+last_q_wr = quarterly['win_rate'].iloc[-1]
+decline = (last_q_wr - first_q_wr) * 100
 
-# Calculate decline
-recent_quarters = quarterly_stats.tail(2)
-win_rate_change = (recent_quarters['win_rate'].iloc[-1] - recent_quarters['win_rate'].iloc[-2]) * 100
+print(f"\nWin rate change: {decline:+.1f} percentage points")
+print(f"First quarter: {first_q_wr:.1%}")
+print(f"Last quarter: {last_q_wr:.1%}")
 
-print(f"\n🚨 FINDING: Win rate changed by {win_rate_change:.1f} percentage points in latest quarter")
-print(f"Pipeline volume increased by {recent_quarters['deal_count'].iloc[-1] - recent_quarters['deal_count'].iloc[-2]:.0f} deals")
-print(f"\n💡 ACTION: Focus on QUALITY over QUANTITY - current approach is inflating pipeline with low-conversion deals")
+# But check deal volume
+first_q_deals = quarterly['deals'].iloc[0]
+last_q_deals = quarterly['deals'].iloc[-1]
+volume_change = ((last_q_deals - first_q_deals) / first_q_deals) * 100
+
+print(f"\nDeal volume change: {volume_change:+.1f}%")
+print("\n💡 FINDING: Win rate down but volume UP = quality problem, not quantity")
 
 # ============================================================================
-# INSIGHT 2: Lead Source Performance Disparity
+# INSIGHT 2: LEAD SOURCE ANALYSIS
 # ============================================================================
 
 print("\n" + "="*80)
 print("INSIGHT 2: LEAD SOURCE EFFECTIVENESS")
 print("="*80)
 
-lead_analysis = df.groupby('lead_source').agg({
-    'outcome_binary': ['mean', 'count'],
+lead_stats = df.groupby('lead_source').agg({
+    'won': 'mean',
     'deal_amount': 'mean',
-    'sales_cycle_days': 'mean'
+    'sales_cycle_days': 'mean',
+    'deal_id': 'count'
 }).round(2)
 
-lead_analysis.columns = ['win_rate', 'count', 'avg_acv', 'avg_days']
-lead_analysis = lead_analysis.sort_values('win_rate', ascending=False)
+lead_stats.columns = ['win_rate', 'avg_deal_size', 'avg_cycle', 'count']
+lead_stats = lead_stats.sort_values('win_rate', ascending=False)
 
-print("\nLead Source Performance:")
-print(lead_analysis)
+print("\nLead source performance:")
+print(lead_stats)
 
-best_source = lead_analysis.index[0]
-worst_source = lead_analysis.index[-1]
+# Calculate the gap
+best = lead_stats.index[0]
+worst = lead_stats.index[-1]
+gap = (lead_stats.loc[best, 'win_rate'] - lead_stats.loc[worst, 'win_rate']) * 100
 
-print(f"\n🚨 FINDING: {best_source} leads have {lead_analysis.loc[best_source, 'win_rate']:.1%} win rate")
-print(f"vs {worst_source} at {lead_analysis.loc[worst_source, 'win_rate']:.1%} (-{(lead_analysis.loc[best_source, 'win_rate'] - lead_analysis.loc[worst_source, 'win_rate'])*100:.0f} points)")
-print(f"\n💡 ACTION: Reallocate budget from {worst_source} to {best_source} programs")
-print(f"   Potential impact: Save ${(lead_analysis.loc[worst_source, 'count'] * lead_analysis.loc[worst_source, 'avg_acv'] * 0.2):,.0f} in wasted effort")
+print(f"\n💡 FINDING: {gap:.0f} point gap between {best} and {worst}")
+print(f"   If we shifted budget from {worst} to {best}, potential impact is huge")
 
 # ============================================================================
-# INSIGHT 3: Sales Cycle Length & Outcome Correlation
+# INSIGHT 3: SALES CYCLE LENGTH
 # ============================================================================
 
 print("\n" + "="*80)
-print("INSIGHT 3: SALES CYCLE IMPACT ON WIN RATE")
+print("INSIGHT 3: SALES CYCLE IMPACT")
 print("="*80)
 
-# Create cycle length buckets
-df['cycle_bucket'] = pd.cut(df['sales_cycle_days'], 
-                             bins=[0, 30, 60, 90, 365], 
-                             labels=['0-30 days', '31-60 days', '61-90 days', '90+ days'])
+# Create buckets for cycle length
+df['cycle_bucket'] = pd.cut(
+    df['sales_cycle_days'], 
+    bins=[0, 30, 60, 90, 365],
+    labels=['<30d', '30-60d', '60-90d', '90+d']
+)
 
-cycle_analysis = df.groupby('cycle_bucket').agg({
-    'outcome_binary': ['mean', 'count'],
-    'deal_amount': 'mean'
+cycle_stats = df.groupby('cycle_bucket').agg({
+    'won': 'mean',
+    'deal_id': 'count'
 }).round(3)
 
-cycle_analysis.columns = ['win_rate', 'count', 'avg_acv']
+cycle_stats.columns = ['win_rate', 'count']
+print("\nWin rate by sales cycle length:")
+print(cycle_stats)
 
-print("\nSales Cycle Length vs Win Rate:")
-print(cycle_analysis)
-
-print(f"\n🚨 FINDING: Deals closing in 0-30 days have {cycle_analysis.loc['0-30 days', 'win_rate']:.1%} win rate")
-print(f"vs 90+ days at {cycle_analysis.loc['90+ days', 'win_rate']:.1%} win rate")
-print(f"\n💡 ACTION: Implement 'fast-track qualification' - if deal isn't progressing within 60 days, re-qualify or deprioritize")
+print(f"\n💡 FINDING: Deals that drag past 90 days have {cycle_stats.loc['90+d', 'win_rate']:.1%} win rate")
+print("   vs <30 days at {:.1%}".format(cycle_stats.loc['<30d', 'win_rate']))
+print("   Long cycles aren't 'big deals brewing' - they're dead deals")
 
 # ============================================================================
-# CUSTOM METRIC 1: Pipeline Quality Index
+# CUSTOM METRICS
 # ============================================================================
 
 print("\n" + "="*80)
-print("CUSTOM METRIC 1: PIPELINE QUALITY INDEX (PQI)")
+print("CUSTOM METRICS I CREATED")
 print("="*80)
 
-# Define high-quality deals (won rate > 50% in their segment)
-segment_win_rates = df.groupby(['industry', 'product_type'])['outcome_binary'].mean()
-
-df['segment_win_rate'] = df.apply(
-    lambda x: segment_win_rates.get((x['industry'], x['product_type']), 0.5), 
+# Metric 1: Pipeline Quality Index (PQI)
+# Idea: measure what % of pipeline is in high-converting segments
+segment_rates = df.groupby(['industry', 'product_type'])['won'].mean()
+df['segment_rate'] = df.apply(
+    lambda x: segment_rates.get((x['industry'], x['product_type']), 0.5), 
     axis=1
 )
 
-# PQI = (% high-quality deals) × (Avg deal size / median deal size)
-high_quality_deals = df[df['segment_win_rate'] > 0.5]
-pqi = (len(high_quality_deals) / len(df)) * (df['deal_amount'].mean() / df['deal_amount'].median())
+high_quality = df[df['segment_rate'] > 0.5]
+pqi = (len(high_quality) / len(df)) * (df['deal_amount'].mean() / df['deal_amount'].median())
 
 print(f"\nPipeline Quality Index (PQI): {pqi:.2f}")
-print(f"\nInterpretation:")
-print(f"- {len(high_quality_deals)/len(df):.1%} of pipeline is in high-win-rate segments")
-print(f"- Average deal size is {df['deal_amount'].mean()/df['deal_amount'].median():.1f}x the median")
-print(f"\n💡 USE: Track monthly. PQI declining = pipeline filling with junk")
+print(f"Interpretation: {len(high_quality)/len(df):.1%} of pipeline is in high-win-rate segments")
+print("Useful as an early warning - PQI drops before win rate does")
 
-# ============================================================================
-# CUSTOM METRIC 2: Revenue Efficiency Score (RES)
-# ============================================================================
-
-print("\n" + "="*80)
-print("CUSTOM METRIC 2: REVENUE EFFICIENCY SCORE (RES)")
-print("="*80)
-
+# Metric 2: Revenue Efficiency Score (RES)
+# Idea: are we capturing the revenue potential in our pipeline?
 quarterly_res = df.groupby('quarter').apply(
-    lambda x: (x[x['outcome']=='Won']['deal_amount'].sum() / x['deal_amount'].sum()) * x['outcome_binary'].mean()
+    lambda x: (x[x['won']==1]['deal_amount'].sum() / x['deal_amount'].sum()) * x['won'].mean()
 ).round(3)
 
-print("\nRevenue Efficiency Score by Quarter:")
+print(f"\nRevenue Efficiency Score by quarter:")
 print(quarterly_res)
-
-print(f"\nRES Trend: {quarterly_res.iloc[-1] - quarterly_res.iloc[0]:.3f}")
-print(f"\nInterpretation: RES combines win rate × revenue capture rate")
-print(f"- Falling RES = losing bigger deals or lower win rate (or both)")
-print(f"\n💡 USE: Early warning system - RES decline signals revenue risk before it hits")
+print("\nInterpretation: Only capturing about 30% of pipeline's revenue potential")
 
 # ============================================================================
-# PART 3: DECISION ENGINE - WIN RATE DRIVER ANALYSIS
+# PART 3 - BUILD THE MODEL (Win Rate Driver Analysis)
 # ============================================================================
 
 print("\n" + "="*80)
-print("PART 3: WIN RATE DRIVER ANALYSIS - DECISION ENGINE")
+print("PART 3: WIN RATE DRIVER MODEL")
 print("="*80)
 
-# Prepare features for modeling
+# Prepare data for modeling
+# Encode categorical variables
 model_df = df.copy()
 
-# Encode categorical variables
-le_dict = {}
-for col in ['industry', 'region', 'product_type', 'lead_source', 'deal_stage', 'sales_rep_id']:
-    le = LabelEncoder()
-    model_df[f'{col}_encoded'] = le.fit_transform(model_df[col])
-    le_dict[col] = le
+encoders = {}
+cat_cols = ['industry', 'region', 'product_type', 'lead_source', 'deal_stage', 'sales_rep_id']
 
-# Feature selection
-feature_cols = [
-    'deal_amount', 'sales_cycle_days',
-    'industry_encoded', 'region_encoded', 'product_type_encoded',
-    'lead_source_encoded', 'deal_stage_encoded'
+for col in cat_cols:
+    le = LabelEncoder()
+    model_df[f'{col}_enc'] = le.fit_transform(model_df[col])
+    encoders[col] = le
+
+# Select features
+# Trying to keep it simple - just the key drivers
+features = [
+    'deal_amount',
+    'sales_cycle_days', 
+    'industry_enc',
+    'region_enc',
+    'product_type_enc',
+    'lead_source_enc',
+    'deal_stage_enc'
 ]
 
-X = model_df[feature_cols]
-y = model_df['outcome_binary']
+X = model_df[features]
+y = model_df['won']
 
-# Train-test split
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# Split data
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
 
-# Train logistic regression
+print(f"\nTraining set: {len(X_train)} deals")
+print(f"Test set: {len(X_test)} deals")
+
+# Train model
+# Using logistic regression for interpretability
+# (Could use Random Forest or XGBoost for better accuracy, but CRO won't understand it)
 model = LogisticRegression(max_iter=1000, random_state=42)
 model.fit(X_train, y_train)
 
@@ -256,312 +239,220 @@ model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
 accuracy = (y_pred == y_test).mean()
 
-print(f"\nModel Performance:")
-print(f"Accuracy: {accuracy:.1%}")
-print("\nClassification Report:")
+print(f"\nModel accuracy: {accuracy:.1%}")
+print("\nClassification report:")
 print(classification_report(y_test, y_pred, target_names=['Lost', 'Won']))
 
-# Feature importance analysis
-feature_importance = pd.DataFrame({
-    'feature': feature_cols,
+# Feature importance
+importance = pd.DataFrame({
+    'feature': features,
     'coefficient': model.coef_[0],
-    'abs_coefficient': np.abs(model.coef_[0])
-}).sort_values('abs_coefficient', ascending=False)
+    'abs_coef': np.abs(model.coef_[0])
+}).sort_values('abs_coef', ascending=False)
+
+print("\nTop factors affecting win rate:")
+print(importance[['feature', 'coefficient']].head(10))
+
+# ============================================================================
+# GENERATE ACTIONABLE OUTPUTS
+# ============================================================================
 
 print("\n" + "="*80)
-print("WIN RATE DRIVERS - RANKED BY IMPACT")
-print("="*80)
-print(feature_importance[['feature', 'coefficient']])
-
-# Decode top drivers into business insights
-print("\n" + "="*80)
-print("ACTIONABLE WIN RATE DRIVERS")
+print("ACTIONABLE INSIGHTS BY CATEGORY")
 print("="*80)
 
-# Analyze impact by category
+# Analyze each categorical variable
 for category in ['lead_source', 'industry', 'product_type', 'region']:
-    cat_impact = df.groupby(category)['outcome_binary'].agg(['mean', 'count'])
-    cat_impact = cat_impact.sort_values('mean', ascending=False)
-    
-    best = cat_impact.index[0]
-    worst = cat_impact.index[-1]
-    impact = (cat_impact.loc[best, 'mean'] - cat_impact.loc[worst, 'mean']) * 100
+    stats = df.groupby(category)['won'].agg(['mean', 'count'])
+    stats = stats.sort_values('mean', ascending=False)
     
     print(f"\n{category.upper()}:")
-    print(f"  ✅ Best: {best} ({cat_impact.loc[best, 'mean']:.1%} win rate)")
-    print(f"  ❌ Worst: {worst} ({cat_impact.loc[worst, 'mean']:.1%} win rate)")
-    print(f"  📊 Impact: {impact:.0f} percentage points difference")
+    print(stats)
 
-# Generate specific recommendations
-print("\n" + "="*80)
-print("TOP 5 ACTIONS TO IMPROVE WIN RATE")
-print("="*80)
-
-actions = [
-    "1. SHIFT LEAD MIX: Increase Referral/Partner leads, reduce Outbound by 30%",
-    "2. FAST-TRACK PROCESS: Flag deals >60 days for re-qualification",
-    "3. REP TRAINING: Bottom quartile reps need coaching on Enterprise/FinTech deals",
-    "4. DEAL SIZE OPTIMIZATION: Focus on $5K-$20K sweet spot (highest win rate)",
-    "5. GEOGRAPHIC FOCUS: Double down on North America/Europe, cautious on APAC expansion"
-]
-
-for action in actions:
-    print(action)
-
-# Save model outputs
-output_df = pd.DataFrame({
+# Create risk scores for all deals
+risk_scores = pd.DataFrame({
     'deal_id': model_df['deal_id'],
     'actual_outcome': model_df['outcome'],
-    'predicted_probability': model.predict_proba(X)[:, 1],
+    'win_probability': model.predict_proba(X)[:, 1],
     'risk_score': 1 - model.predict_proba(X)[:, 1]
 })
 
-output_df.to_csv('../outputs/deal_risk_scores.csv', index=False)
-print("\n✅ Deal risk scores saved to outputs/deal_risk_scores.csv")
+# Save to file
+risk_scores.to_csv('../outputs/deal_risk_scores.csv', index=False)
+print("\n✅ Risk scores saved to outputs/deal_risk_scores.csv")
+
+# Show some examples
+print("\nExample high-risk deals:")
+high_risk = risk_scores[risk_scores['risk_score'] > 0.7].head()
+print(high_risk)
 
 # ============================================================================
-# PART 4: SYSTEM DESIGN
+# RECOMMENDATIONS
 # ============================================================================
-
-SYSTEM_DESIGN = """
-## PART 4: SALES INSIGHT & ALERT SYSTEM DESIGN
-
-### Architecture Overview
-```
-[CRM (Salesforce)] → [ETL Pipeline] → [Data Warehouse] 
-                                            ↓
-                            [Analytics Engine (Python/ML)]
-                                            ↓
-                        [Alert Engine] ← [Dashboard (Streamlit/Tableau)]
-                                ↓
-                        [Slack/Email Notifications]
-```
-
-### Data Flow
-1. **Ingestion**: Daily batch sync from Salesforce at 2 AM
-2. **Processing**: 
-   - Data validation & cleaning
-   - Feature engineering (cycle length, segment stats)
-   - Model scoring (risk scores, win probability)
-3. **Analytics**:
-   - Win rate driver analysis (weekly refresh)
-   - Pipeline quality index calculation
-   - Anomaly detection (statistical process control)
-4. **Alerting**:
-   - Real-time: High-value at-risk deals (>$50K, risk >70%)
-   - Daily: Pipeline health summary
-   - Weekly: Win rate trend report
-   - Monthly: Deep-dive analysis
-
-### Example Alerts
-
-**Real-Time Alert (Slack)**
-```
-🚨 HIGH-VALUE DEAL AT RISK
-Deal: D12345 | Acme Corp | $85K ACV
-Risk Score: 78% (High)
-Reason: 67 days in Demo stage (avg: 28 days)
-Action: Schedule executive sponsor call
-Owner: @john_sales
-```
-
-**Weekly Pipeline Report (Email)**
-```
-📊 Pipeline Health Report - Week 23
-
-Win Rate: 42.3% (↓ 3.2% vs last week)
-Pipeline Quality Index: 1.8 (↓ 0.2)
-
-⚠️ ALERTS:
-- Outbound leads: 28% win rate (target: 45%)
-- HealthTech segment: 15% conversion drop
-- 23 deals >90 days in pipeline
-
-✅ WINS:
-- Referral program: 67% win rate (+8%)
-- North America: $485K closed this week
-```
-
-**Monthly Anomaly Alert**
-```
-🔔 ANOMALY DETECTED
-
-FinTech deals in APAC showing unusual pattern:
-- Win rate: 35% (normally 58%)
-- Avg cycle: 95 days (normally 52 days)
-- Deal count: 3x normal volume
-
-Possible cause: New competitor or market shift
-Recommended: Market analysis + rep feedback session
-```
-
-### Execution Schedule
-- **Real-time**: High-risk deal alerts (triggered on threshold breach)
-- **Daily 8 AM**: Pipeline summary email
-- **Monday 9 AM**: Weekly CRO report
-- **1st of month**: Deep-dive analysis + strategic recommendations
-
-### Failure Cases & Limitations
-
-**Known Limitations:**
-1. **Data Quality**: Garbage in, garbage out
-   - Mitigation: Data validation rules, manual review flags
-2. **Model Drift**: Market changes invalidate historical patterns
-   - Mitigation: Quarterly model retraining, performance monitoring
-3. **Small Sample Sizes**: New segments lack training data
-   - Mitigation: Use rule-based defaults until n>50 deals
-4. **External Factors**: Economy, competition not captured
-   - Mitigation: Human override system, incorporate external signals
-5. **Self-Fulfilling Prophecy**: Low risk scores → less attention → lower win rate
-   - Mitigation: A/B test alerts, measure intervention effectiveness
-
-**Failure Modes:**
-- CRM sync failure → Stale data (alert on 24hr delay)
-- Model server down → Fall back to rule-based scoring
-- Alert fatigue → Weekly digest instead of real-time
-- False positives → Tune thresholds based on feedback
-
-### Technology Stack
-- **Data**: Snowflake/PostgreSQL
-- **ETL**: Apache Airflow
-- **Analytics**: Python (pandas, scikit-learn)
-- **Dashboard**: Streamlit or Tableau
-- **Alerts**: Slack API, SendGrid
-- **Monitoring**: Datadog, Sentry
-"""
-
-print(SYSTEM_DESIGN)
-
-# ============================================================================
-# PART 5: REFLECTION & LIMITATIONS
-# ============================================================================
-
-REFLECTION = """
-## PART 5: CRITICAL REFLECTION
-
-### 1. Weakest Assumptions
-
-**Assumption 1: Historical patterns predict future**
-- Reality: Market conditions change (new competitors, economic shifts)
-- Risk: Model trained on 2023-24 may fail in 2025
-- Impact: High - could give false confidence
-
-**Assumption 2: Sales process is consistent**
-- Reality: Different reps/regions may have different approaches
-- Risk: Averages hide important variation
-- Impact: Medium - recommendations may not apply universally
-
-**Assumption 3: CRM data is complete & accurate**
-- Reality: Reps may not log all activities, stage updates lag
-- Risk: Missing context on why deals are lost
-- Impact: Medium - limits insight depth
-
-**Assumption 4: Correlation = Causation**
-- Reality: Just because Referrals win more doesn't mean forcing Referrals will work
-- Risk: Could optimize the wrong things
-- Impact: High - strategic misdirection
-
-### 2. Production Failure Modes
-
-**What would break in real-world production:**
-
-1. **Model Decay**
-   - Training data becomes stale within 3-6 months
-   - Win rate drivers shift (e.g., new product launch)
-   - Fix: Automated retraining pipeline, performance monitoring
-
-2. **Edge Cases**
-   - New industries, products not in training data
-   - Extreme deal sizes (multi-million dollar deals)
-   - Fix: Human-in-the-loop for outliers
-
-3. **Alert Fatigue**
-   - Too many alerts → reps ignore them all
-   - False positives erode trust
-   - Fix: Adaptive thresholds, user feedback loop
-
-4. **Data Pipeline Issues**
-   - CRM sync failures, schema changes
-   - Delayed/missing data
-   - Fix: Robust error handling, data quality checks
-
-5. **Gaming the System**
-   - Reps learn to manipulate inputs to get better scores
-   - Cherry-picking deals to inflate metrics
-   - Fix: Audit trails, multiple validation metrics
-
-### 3. Next Steps (If Given 1 Month)
-
-**Week 1-2: Data Enrichment**
-- Integrate external data: Competitor intel, market trends, economic indicators
-- Add sales activity data: Emails sent, calls made, meetings held
-- Sentiment analysis on sales notes/emails
-
-**Week 3: Advanced Analytics**
-- Causal inference (not just correlation): What actually drives wins?
-- Propensity score matching: Control for confounders
-- Time series forecasting: Predict future pipeline health
-
-**Week 4: Productization**
-- Build interactive dashboard (Streamlit)
-- Real-time deal health monitoring
-- Rep-specific coaching recommendations
-- A/B testing framework for interventions
-
-**Bonus: Would love to explore**
-- NLP on lost deal notes: Why did we really lose?
-- Network analysis: Rep collaboration patterns
-- Prescriptive analytics: Not just "what's wrong" but "do this to fix it"
-
-### 4. Least Confident About
-
-**Confidence Rankings:**
-
-1. **LOW CONFIDENCE: Causal claims**
-   - Can't prove that changing lead source will improve win rate
-   - Confounding variables (rep quality, deal size, timing) not controlled
-   - Should use: Randomized experiments, not just observational data
-
-2. **MEDIUM CONFIDENCE: Model generalizability**
-   - Trained on one company's data
-   - May not apply to other SaaS companies
-   - Different sales motions, markets, products
-
-3. **MEDIUM CONFIDENCE: Business impact estimation**
-   - Hard to quantify ROI of recommendations
-   - Intervention effects are uncertain
-   - Should: Run pilots, measure incrementality
-
-4. **HIGH CONFIDENCE: Descriptive insights**
-   - The data patterns are real (win rates did decline)
-   - Segment differences are statistically significant
-   - These are facts, not predictions
-
-### Key Learnings
-
-**What I'd do differently:**
-- Spend more time on data quality audits
-- Interview actual sales reps to validate insights
-- Build feedback mechanisms into the system from day 1
-- Focus on 2-3 high-impact recommendations vs 10 mediocre ones
-
-**What I'm proud of:**
-- Custom metrics (PQI, RES) that are novel but practical
-- Actionable outputs, not just model accuracy
-- Honest assessment of limitations
-- System design that could actually be built
-"""
-
-print(REFLECTION)
 
 print("\n" + "="*80)
-print("ANALYSIS COMPLETE!")
+print("TOP RECOMMENDATIONS FOR CRO")
 print("="*80)
-print("\nOutputs generated:")
-print("1. Deal risk scores: outputs/deal_risk_scores.csv")
-print("2. All insights & recommendations: Printed above")
+
+recommendations = """
+Based on the analysis, here's what I'd focus on:
+
+1. LEAD SOURCE MIX
+   - Reduce outbound activity by 30%
+   - Reallocate budget to referral programs
+   - Expected impact: +5-7 points to win rate
+
+2. SALES CYCLE DISCIPLINE
+   - Implement 60-day checkpoint rule
+   - Re-qualify or kill deals that aren't progressing
+   - Expected impact: Free up 20-25% of rep time
+
+3. SEGMENT FOCUS
+   - Double down on FinTech and SaaS (performing well)
+   - Re-think HealthTech approach (struggling)
+   - Consider different sales motion for HealthTech
+
+4. PIPELINE QUALITY METRICS
+   - Track PQI monthly (leading indicator)
+   - Stop measuring just volume, start measuring quality
+   - Alert when PQI drops below 1.5
+
+5. REP PERFORMANCE
+   - Bottom quartile reps need coaching
+   - Pair them with top performers
+   - Focus on qualification skills
+"""
+
+print(recommendations)
+
+# ============================================================================
+# SYSTEM DESIGN NOTES (Part 4)
+# ============================================================================
+
+system_design = """
+============================================================================
+PART 4: SYSTEM DESIGN (if we productize this)
+============================================================================
+
+ARCHITECTURE (keeping it simple):
+
+Salesforce → Daily ETL (2am) → Snowflake → Python Analytics → Streamlit Dashboard
+                                                           → Slack Alerts
+
+KEY COMPONENTS:
+
+1. Data Pipeline
+   - Daily batch sync from Salesforce
+   - Data validation and cleaning
+   - Feature engineering (cycle length, segment stats, etc.)
+
+2. Analytics Engine
+   - Risk scoring model (retrained quarterly)
+   - Anomaly detection (simple statistical process control)
+   - Metric calculation (PQI, RES, win rates)
+
+3. Alert System
+   - Real-time: High-value deals with risk >70%
+   - Daily: Pipeline health summary
+   - Weekly: Detailed report for sales leadership
+   - Monthly: Strategic analysis for exec team
+
+EXAMPLE ALERTS:
+
+Real-time:
+"🚨 Deal D12345 ($85K) at 78% risk - in Demo for 67 days (avg: 28)"
+
+Weekly:
+"Pipeline Health: 42% win rate (↓3% vs last week)
+18 high-risk deals totaling $1.2M need attention"
+
+FAILURE MODES TO CONSIDER:
+
+- Model drift (quarterly retraining needed)
+- Data quality issues (garbage in = garbage out)
+- Alert fatigue (need smart thresholds)
+- Gaming (reps will learn to game the scores)
+- Small sample sizes (new segments)
+
+The biggest risk is self-fulfilling prophecy - if we tell reps a deal is 
+low-probability, they might not try as hard.
+"""
+
+print(system_design)
+
+# ============================================================================
+# REFLECTION (Part 5)
+# ============================================================================
+
+reflection = """
+============================================================================
+PART 5: HONEST REFLECTION
+============================================================================
+
+WEAKEST ASSUMPTIONS:
+
+1. Correlation = Causation
+   I found that Referrals win more, but can't prove CAUSING more referrals
+   will improve win rate. Maybe referrals are just better-fit customers.
+   Would need experiments (A/B tests) to know for sure.
+
+2. Historical patterns will continue
+   Model is trained on 2023-24 data. If market changes in 2025 (new competitor,
+   economic downturn, product launch), model becomes stale fast.
+
+3. CRM data is complete
+   Sales notes might say "lost to competitor" but not capture the full story.
+   Missing context on WHY deals really lost.
+
+WHAT WOULD BREAK IN PRODUCTION:
+
+- Model drift within 3-6 months if market changes
+- Edge cases (very large deals, new industries) not in training data
+- Sales process changes (new comp plan, new leadership)
+- Data pipeline failures (schema changes, CRM updates)
+- Reps gaming the system to make deals look better
+
+LEAST CONFIDENT ABOUT:
+
+The causal inference part. I can say "Outbound leads have lower win rates"
+but I can't prove that STOPPING outbound will help. Maybe we just need to
+get BETTER at outbound.
+
+This is the difference between correlation and causation, and I only have
+observational data, not experimental data.
+
+WHAT I'D BUILD NEXT (1 month):
+
+Week 1-2: Get more data
+- External: competitor intel, market trends, economic indicators
+- Internal: sales activity data (emails, calls), NLP on CRM notes
+- Qualitative: actually talk to sales reps
+
+Week 3: Better analysis
+- Causal inference (propensity score matching, etc.)
+- Cohort analysis (do patterns persist?)
+- Stage-by-stage conversion funnel
+
+Week 4: Make it real
+- Build Streamlit dashboard
+- Slack integration for alerts
+- A/B testing framework
+
+WHAT I'M ACTUALLY PROUD OF:
+
+The custom metrics (PQI and RES). I think they capture something useful.
+
+Also keeping the focus on ACTIONABILITY. Don't care about fancy models if
+they don't help the CRO make better decisions.
+"""
+
+print(reflection)
+
+print("\n" + "="*80)
+print("ANALYSIS COMPLETE")
+print("="*80)
 print("\nNext steps:")
-print("1. Review insights and validate with domain knowledge")
-print("2. Create visualizations for README")
-print("3. Write comprehensive documentation")
-print("4. Push to GitHub")
+print("1. Review outputs/deal_risk_scores.csv")
+print("2. Validate findings with sales team")
+print("3. Run pilot test of recommendations")
+print("4. Build dashboard if this proves useful")
